@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/technoweenie/multipartstreamer"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -16,12 +15,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/technoweenie/multipartstreamer"
 )
 
 // BotAPI allows you to interact with the Telegram Bot API.
 type BotAPI struct {
-	Token  string       `json:"token"`
-	Debug  bool         `json:"debug"`
+	Token  string `json:"token"`
+	Debug  bool   `json:"debug"`
+	Buffer int    `json:"buffer"`
+
 	Self   User         `json:"-"`
 	Client *http.Client `json:"-"`
 }
@@ -41,11 +44,12 @@ func NewBotAPIWithClient(token string, client *http.Client) (*BotAPI, error) {
 	bot := &BotAPI{
 		Token:  token,
 		Client: client,
+		Buffer: 100,
 	}
 
 	self, err := bot.GetMe()
 	if err != nil {
-		return &BotAPI{}, err
+		return nil, err
 	}
 
 	bot.Self = self
@@ -67,6 +71,10 @@ func (bot *BotAPI) MakeRequest(endpoint string, params url.Values) (APIResponse,
 		return APIResponse{}, errors.New(ErrAPIForbidden)
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return APIResponse{}, errors.New(http.StatusText(resp.StatusCode))
+	}
+
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return APIResponse{}, err
@@ -80,7 +88,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params url.Values) (APIResponse,
 	json.Unmarshal(bytes, &apiResp)
 
 	if !apiResp.Ok {
-		return APIResponse{}, errors.New(apiResp.Description)
+		return apiResp, errors.New(apiResp.Description)
 	}
 
 	return apiResp, nil
@@ -183,7 +191,11 @@ func (bot *BotAPI) UploadFile(endpoint string, params map[string]string, fieldna
 	}
 
 	var apiResp APIResponse
-	json.Unmarshal(bytes, &apiResp)
+
+	err = json.Unmarshal(bytes, &apiResp)
+	if err != nil {
+		return APIResponse{}, err
+	}
 
 	if !apiResp.Ok {
 		return APIResponse{}, errors.New(apiResp.Description)
@@ -408,29 +420,29 @@ func (bot *BotAPI) RemoveWebhook() (APIResponse, error) {
 // If you do not have a legitimate TLS certificate, you need to include
 // your self signed certificate with the config.
 func (bot *BotAPI) SetWebhook(config WebhookConfig) (APIResponse, error) {
+
 	if config.Certificate == nil {
 		v := url.Values{}
 		v.Add("url", config.URL.String())
+		if config.MaxConnections != 0 {
+			v.Add("max_connections", strconv.Itoa(config.MaxConnections))
+		}
 
 		return bot.MakeRequest("setWebhook", v)
 	}
 
 	params := make(map[string]string)
 	params["url"] = config.URL.String()
+	if config.MaxConnections != 0 {
+		params["max_connections"] = strconv.Itoa(config.MaxConnections)
+	}
 
 	resp, err := bot.UploadFile("setWebhook", params, "certificate", config.Certificate)
 	if err != nil {
 		return APIResponse{}, err
 	}
 
-	var apiResp APIResponse
-	json.Unmarshal(resp.Result, &apiResp)
-
-	if bot.Debug {
-		log.Printf("setWebhook resp: %+v\n", apiResp)
-	}
-
-	return apiResp, nil
+	return resp, nil
 }
 
 // GetWebhookInfo allows you to fetch information about a webhook and if
@@ -448,8 +460,8 @@ func (bot *BotAPI) GetWebhookInfo() (WebhookInfo, error) {
 }
 
 // GetUpdatesChan starts and returns a channel for getting updates.
-func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) (<-chan Update, error) {
-	updatesChan := make(chan Update, 100)
+func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) (UpdatesChannel, error) {
+	ch := make(chan Update, bot.Buffer)
 
 	go func() {
 		for {
@@ -465,18 +477,18 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) (<-chan Update, error) {
 			for _, update := range updates {
 				if update.UpdateID >= config.Offset {
 					config.Offset = update.UpdateID + 1
-					updatesChan <- update
+					ch <- update
 				}
 			}
 		}
 	}()
 
-	return updatesChan, nil
+	return ch, nil
 }
 
 // ListenForWebhook registers a http handler for a webhook.
-func (bot *BotAPI) ListenForWebhook(pattern string) <-chan Update {
-	updatesChan := make(chan Update, 100)
+func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
+	ch := make(chan Update, bot.Buffer)
 
 	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		bytes, _ := ioutil.ReadAll(r.Body)
@@ -484,10 +496,10 @@ func (bot *BotAPI) ListenForWebhook(pattern string) <-chan Update {
 		var update Update
 		json.Unmarshal(bytes, &update)
 
-		updatesChan <- update
+		ch <- update
 	})
 
-	return updatesChan
+	return ch
 }
 
 // AnswerInlineQuery sends a response to an inline query.
