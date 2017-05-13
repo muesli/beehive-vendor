@@ -19,25 +19,25 @@ type TextMessage struct {
 	Message string
 }
 
-func (t *TextMessage) writeMessage(client *Client) error {
+func (tm *TextMessage) writeMessage(client *Client) error {
 	packet := MumbleProto.TextMessage{
-		Message: &t.Message,
+		Message: &tm.Message,
 	}
-	if t.Users != nil {
-		packet.Session = make([]uint32, len(t.Users))
-		for i, user := range t.Users {
+	if tm.Users != nil {
+		packet.Session = make([]uint32, len(tm.Users))
+		for i, user := range tm.Users {
 			packet.Session[i] = user.Session
 		}
 	}
-	if t.Channels != nil {
-		packet.ChannelId = make([]uint32, len(t.Channels))
-		for i, channel := range t.Channels {
+	if tm.Channels != nil {
+		packet.ChannelId = make([]uint32, len(tm.Channels))
+		for i, channel := range tm.Channels {
 			packet.ChannelId[i] = channel.ID
 		}
 	}
-	if t.Trees != nil {
-		packet.TreeId = make([]uint32, len(t.Trees))
-		for i, channel := range t.Trees {
+	if tm.Trees != nil {
+		packet.TreeId = make([]uint32, len(tm.Trees))
+		for i, channel := range tm.Trees {
 			packet.TreeId[i] = channel.ID
 		}
 	}

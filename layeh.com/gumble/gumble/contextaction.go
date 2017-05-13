@@ -29,29 +29,29 @@ type ContextAction struct {
 }
 
 // Trigger will trigger the context action in the context of the server.
-func (c *ContextAction) Trigger() {
+func (ca *ContextAction) Trigger() {
 	packet := MumbleProto.ContextAction{
-		Action: &c.Name,
+		Action: &ca.Name,
 	}
-	c.client.Conn.WriteProto(&packet)
+	ca.client.Conn.WriteProto(&packet)
 }
 
 // TriggerUser will trigger the context action in the context of the given
 // user.
-func (c *ContextAction) TriggerUser(user *User) {
+func (ca *ContextAction) TriggerUser(user *User) {
 	packet := MumbleProto.ContextAction{
 		Session: &user.Session,
-		Action:  &c.Name,
+		Action:  &ca.Name,
 	}
-	c.client.Conn.WriteProto(&packet)
+	ca.client.Conn.WriteProto(&packet)
 }
 
 // TriggerChannel will trigger the context action in the context of the given
 // channel.
-func (c *ContextAction) TriggerChannel(channel *Channel) {
+func (ca *ContextAction) TriggerChannel(channel *Channel) {
 	packet := MumbleProto.ContextAction{
 		ChannelId: &channel.ID,
-		Action:    &c.Name,
+		Action:    &ca.Name,
 	}
-	c.client.Conn.WriteProto(&packet)
+	ca.client.Conn.WriteProto(&packet)
 }

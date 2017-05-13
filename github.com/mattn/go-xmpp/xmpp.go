@@ -191,9 +191,7 @@ func (o Options) NewClient() (*Client, error) {
 			tlsconn = tls.Client(c, o.TLSConfig)
 		} else {
 			DefaultConfig.ServerName = host
-			newconfig := DefaultConfig
-			newconfig.ServerName = host
-			tlsconn = tls.Client(c, &newconfig)
+			tlsconn = tls.Client(c, &DefaultConfig)
 		}
 		if err = tlsconn.Handshake(); err != nil {
 			return nil, err
@@ -637,7 +635,7 @@ func (c *Client) SendPresence(presence Presence) (n int, err error) {
 
 // SendKeepAlive sends a "whitespace keepalive" as described in chapter 4.6.1 of RFC6120.
 func (c *Client) SendKeepAlive() (n int, err error) {
-	return fmt.Fprintf(c.conn, " ")
+	return fmt.Fprintf(c.conn," ")
 }
 
 // SendHtml sends the message as HTML as defined by XEP-0071

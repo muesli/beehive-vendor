@@ -33,20 +33,20 @@ type VoiceTarget struct {
 }
 
 // Clear removes all users and channels from the voice target.
-func (v *VoiceTarget) Clear() {
-	v.users = nil
-	v.channels = nil
+func (vt *VoiceTarget) Clear() {
+	vt.users = nil
+	vt.channels = nil
 }
 
 // AddUser adds a user to the voice target.
-func (v *VoiceTarget) AddUser(user *User) {
-	v.users = append(v.users, user)
+func (vt *VoiceTarget) AddUser(user *User) {
+	vt.users = append(vt.users, user)
 }
 
 // AddChannel adds a user to the voice target. If group is non-empty, only
 // users belonging to that ACL group will be targeted.
-func (v *VoiceTarget) AddChannel(channel *Channel, recursive, links bool, group string) {
-	v.channels = append(v.channels, &voiceTargetChannel{
+func (vt *VoiceTarget) AddChannel(channel *Channel, recursive, links bool, group string) {
+	vt.channels = append(vt.channels, &voiceTargetChannel{
 		channel:   channel,
 		links:     links,
 		recursive: recursive,
@@ -54,17 +54,17 @@ func (v *VoiceTarget) AddChannel(channel *Channel, recursive, links bool, group 
 	})
 }
 
-func (v *VoiceTarget) writeMessage(client *Client) error {
+func (vt *VoiceTarget) writeMessage(client *Client) error {
 	packet := MumbleProto.VoiceTarget{
-		Id:      &v.ID,
-		Targets: make([]*MumbleProto.VoiceTarget_Target, 0, len(v.users)+len(v.channels)),
+		Id:      &vt.ID,
+		Targets: make([]*MumbleProto.VoiceTarget_Target, 0, len(vt.users)+len(vt.channels)),
 	}
-	for _, user := range v.users {
+	for _, user := range vt.users {
 		packet.Targets = append(packet.Targets, &MumbleProto.VoiceTarget_Target{
 			Session: []uint32{user.Session},
 		})
 	}
-	for _, vtChannel := range v.channels {
+	for _, vtChannel := range vt.channels {
 		target := &MumbleProto.VoiceTarget_Target{
 			ChannelId: &vtChannel.channel.ID,
 			Links:     &vtChannel.links,

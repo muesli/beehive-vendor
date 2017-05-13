@@ -3,10 +3,10 @@ package gumble // import "layeh.com/gumble/gumble"
 // ContextActions is a map of ContextActions.
 type ContextActions map[string]*ContextAction
 
-func (c ContextActions) create(action string) *ContextAction {
+func (ca ContextActions) create(action string) *ContextAction {
 	contextAction := &ContextAction{
 		Name: action,
 	}
-	c[action] = contextAction
+	ca[action] = contextAction
 	return contextAction
 }

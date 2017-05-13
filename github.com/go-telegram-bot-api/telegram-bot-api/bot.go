@@ -191,11 +191,7 @@ func (bot *BotAPI) UploadFile(endpoint string, params map[string]string, fieldna
 	}
 
 	var apiResp APIResponse
-
-	err = json.Unmarshal(bytes, &apiResp)
-	if err != nil {
-		return APIResponse{}, err
-	}
+	json.Unmarshal(bytes, &apiResp)
 
 	if !apiResp.Ok {
 		return APIResponse{}, errors.New(apiResp.Description)
@@ -442,7 +438,14 @@ func (bot *BotAPI) SetWebhook(config WebhookConfig) (APIResponse, error) {
 		return APIResponse{}, err
 	}
 
-	return resp, nil
+	var apiResp APIResponse
+	json.Unmarshal(resp.Result, &apiResp)
+
+	if bot.Debug {
+		log.Printf("setWebhook resp: %+v\n", apiResp)
+	}
+
+	return apiResp, nil
 }
 
 // GetWebhookInfo allows you to fetch information about a webhook and if

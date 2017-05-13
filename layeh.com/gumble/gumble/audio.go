@@ -50,13 +50,13 @@ type AudioStreamEvent struct {
 // AudioBuffer is a slice of PCM audio samples.
 type AudioBuffer []int16
 
-func (a AudioBuffer) writeAudio(client *Client, seq int64, final bool) error {
+func (ab AudioBuffer) writeAudio(client *Client, seq int64, final bool) error {
 	encoder := client.AudioEncoder
 	if encoder == nil {
 		return nil
 	}
 	dataBytes := client.Config.AudioDataBytes
-	raw, err := encoder.Encode(a, len(a), dataBytes)
+	raw, err := encoder.Encode(ab, len(ab), dataBytes)
 	if final {
 		defer encoder.Reset()
 	}
