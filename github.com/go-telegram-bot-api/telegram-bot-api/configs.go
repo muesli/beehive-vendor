@@ -349,7 +349,6 @@ func (config AudioConfig) method() string {
 // DocumentConfig contains information about a SendDocument request.
 type DocumentConfig struct {
 	BaseFile
-	Caption string
 }
 
 // values returns a url.Values representation of DocumentConfig.
@@ -360,9 +359,6 @@ func (config DocumentConfig) values() (url.Values, error) {
 	}
 
 	v.Add(config.name(), config.FileID)
-	if config.Caption != "" {
-		v.Add("caption", config.Caption)
-	}
 
 	return v, nil
 }
@@ -370,10 +366,6 @@ func (config DocumentConfig) values() (url.Values, error) {
 // params returns a map[string]string representation of DocumentConfig.
 func (config DocumentConfig) params() (map[string]string, error) {
 	params, _ := config.BaseFile.params()
-
-	if config.Caption != "" {
-		params["caption"] = config.Caption
-	}
 
 	return params, nil
 }
@@ -482,9 +474,6 @@ func (config VoiceConfig) values() (url.Values, error) {
 	if config.Duration != 0 {
 		v.Add("duration", strconv.Itoa(config.Duration))
 	}
-	if config.Caption != "" {
-		v.Add("caption", config.Caption)
-	}
 
 	return v, nil
 }
@@ -495,9 +484,6 @@ func (config VoiceConfig) params() (map[string]string, error) {
 
 	if config.Duration != 0 {
 		params["duration"] = strconv.Itoa(config.Duration)
-	}
-	if config.Caption != "" {
-		params["caption"] = config.Caption
 	}
 
 	return params, nil

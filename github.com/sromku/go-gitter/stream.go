@@ -137,10 +137,7 @@ func (stream *Stream) connect() {
 
 	res, err := stream.gitter.getResponse(stream.url, stream)
 	if err != nil || res.StatusCode != 200 {
-		stream.gitter.log("Failed to get response, trying reconnect")
-		if res != nil {
-			stream.gitter.log(fmt.Sprintf("Status code: %v", res.StatusCode))
-		}
+		stream.gitter.log(fmt.Sprintf("Failed to get response, trying reconnect (Status code: %v)", res.StatusCode))
 		stream.gitter.log(err)
 
 		// sleep and wait

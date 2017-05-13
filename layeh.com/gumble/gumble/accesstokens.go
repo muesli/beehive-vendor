@@ -8,9 +8,9 @@ import (
 // gain access to restricted channels.
 type AccessTokens []string
 
-func (a AccessTokens) writeMessage(client *Client) error {
+func (at AccessTokens) writeMessage(client *Client) error {
 	packet := MumbleProto.Authenticate{
-		Tokens: a,
+		Tokens: at,
 	}
 	return client.Conn.WriteProto(&packet)
 }
