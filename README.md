@@ -2,7 +2,7 @@
 
 Vendor files for [Beehive](https://github.com/muesli/beehive).
 
-## Updating beehive dependencies
+## Updating Beehive dependencies
 
 If you're adding new dependencies to Beehive, you will also need to add them to this repository.
 
