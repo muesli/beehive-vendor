@@ -1,6 +1,6 @@
 /*
  * smolder
- *     Copyright (c) 2016, Christian Muehlhaeuser <muesli@gmail.com>
+ *     Copyright (c) 2016-2017, Christian Muehlhaeuser <muesli@gmail.com>
  *
  *   For license see LICENSE
  */
@@ -36,6 +36,7 @@ type Resource struct {
 type GetIDSupported interface {
 	GetByIDs(context APIContext, request *restful.Request, response *restful.Response, ids []string)
 	GetByIDsAuthRequired() bool
+	Returns() interface{}
 }
 
 // GetSupported is the interface Resources need to fulfill to respond to generic GET requests
@@ -44,6 +45,7 @@ type GetSupported interface {
 	GetAuthRequired() bool
 	GetDoc() string
 	GetParams() []*restful.Parameter
+	Returns() interface{}
 }
 
 // PostSupported is the interface Resources need to fulfill to respond to generic POST requests
@@ -52,6 +54,8 @@ type PostSupported interface {
 	PostAuthRequired() bool
 	PostDoc() string
 	PostParams() []*restful.Parameter
+	Reads() interface{}
+	Returns() interface{}
 }
 
 // PutSupported is the interface Resources need to fulfill to respond to generic PUT requests
@@ -60,6 +64,8 @@ type PutSupported interface {
 	PutAuthRequired() bool
 	PutDoc() string
 	PutParams() []*restful.Parameter
+	Reads() interface{}
+	Returns() interface{}
 }
 
 // PatchSupported is the interface Resources need to fulfill to respond to generic PATCH requests
@@ -68,6 +74,8 @@ type PatchSupported interface {
 	PatchAuthRequired() bool
 	PatchDoc() string
 	PatchParams() []*restful.Parameter
+	Reads() interface{}
+	Returns() interface{}
 }
 
 // DeleteSupported is the interface Resources need to fulfill to respond to generic DELETE requests
@@ -90,14 +98,24 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 		Produces(restful.MIME_JSON)
 
 	isDatabaseItem := false
-	if _, ok := resource.(GetIDSupported); ok {
+	if resource, ok := resource.(GetIDSupported); ok {
 		isDatabaseItem = true
 		route := ws.GET("/{id}").To(r.GetByIDs).
 			Doc("get item by id").
+			Returns(http.StatusOK, "OK", resource.Returns()).
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{}).
 			Param(ws.PathParameter("id", "ID of "+r.TypeName).
 				DataType("string").
 				Required(true).
 				AllowMultiple(false))
+
+		if resource.GetByIDsAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		ws.Route(route)
 	}
@@ -106,7 +124,17 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 	if resource, ok := resource.(GetSupported); ok {
 		isGetSupported = true
 		route := ws.GET("").To(r.Get).
-			Doc(resource.GetDoc())
+			Doc(resource.GetDoc()).
+			Returns(http.StatusOK, "OK", resource.Returns()).
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{})
+
+		if resource.GetAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		for _, p := range resource.GetParams() {
 			route.Param(p)
@@ -114,7 +142,7 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 		if isDatabaseItem {
 			route.Param(ws.QueryParameter("ids[]", "IDs of "+r.TypeName+"s").
 				DataType("string").
-				Required(true).
+				// Required(true).
 				AllowMultiple(true))
 		}
 		ws.Route(route)
@@ -122,10 +150,11 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 
 	if isDatabaseItem && !isGetSupported {
 		route := ws.GET("").To(r.GetByIDs).
-			Doc("get " + r.TypeName + " by ids").
+			Doc("get "+r.TypeName+" by ids").
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{}).
 			Param(ws.QueryParameter("ids[]", "IDs of "+r.TypeName+"s").
 				DataType("string").
-				Required(true).
+				// Required(true).
 				AllowMultiple(true))
 
 		ws.Route(route)
@@ -133,22 +162,41 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 
 	if resource, ok := resource.(PostSupported); ok {
 		route := ws.POST("").To(r.Post).
-			Doc(resource.PostDoc())
+			Doc(resource.PostDoc()).
+			Reads(resource.Reads()).
+			Returns(http.StatusOK, "OK", resource.Returns()).
+			Returns(http.StatusBadRequest, "Invalid post data", ErrorResponse{})
+
+		if resource.PostAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		for _, p := range resource.PostParams() {
 			route.Param(p)
 		}
-		route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
-			DataType("string").
-			Required(true).
-			AllowMultiple(false))
 
 		ws.Route(route)
 	}
 
 	if resource, ok := resource.(PutSupported); ok {
-		route := ws.PUT("/{" + r.TypeName + "-id}").To(r.Put).
-			Doc(resource.PutDoc())
+		route := ws.PUT("/{"+r.TypeName+"-id}").To(r.Put).
+			Doc(resource.PutDoc()).
+			Reads(resource.Reads()).
+			Returns(http.StatusOK, "OK", resource.Returns()).
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{}).
+			Returns(http.StatusBadRequest, "Invalid put data", ErrorResponse{})
+
+		if resource.PutAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		for _, p := range resource.PutParams() {
 			route.Param(p)
@@ -158,17 +206,24 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 			Required(true).
 			AllowMultiple(false))
 
-		route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
-			DataType("string").
-			Required(true).
-			AllowMultiple(false))
-
 		ws.Route(route)
 	}
 
 	if resource, ok := resource.(PatchSupported); ok {
-		route := ws.PATCH("/{" + r.TypeName + "-id").To(r.Patch).
-			Doc(resource.PatchDoc())
+		route := ws.PATCH("/{"+r.TypeName+"-id").To(r.Patch).
+			Doc(resource.PatchDoc()).
+			Reads(resource.Reads()).
+			Returns(http.StatusOK, "OK", resource.Returns()).
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{}).
+			Returns(http.StatusBadRequest, "Invalid patch data", ErrorResponse{})
+
+		if resource.PatchAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		for _, p := range resource.PatchParams() {
 			route.Param(p)
@@ -178,28 +233,27 @@ func (r Resource) Init(container *restful.Container, resource interface{}) {
 			Required(true).
 			AllowMultiple(false))
 
-		route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
-			DataType("string").
-			Required(true).
-			AllowMultiple(false))
-
 		ws.Route(route)
 	}
 
 	if resource, ok := resource.(DeleteSupported); ok {
-		route := ws.DELETE("/{" + r.TypeName + "-id}").To(r.Delete).
-			Doc(resource.DeleteDoc())
+		route := ws.DELETE("/{"+r.TypeName+"-id}").To(r.Delete).
+			Doc(resource.DeleteDoc()).
+			Returns(http.StatusNotFound, "Not found", ErrorResponse{})
+
+		if resource.DeleteAuthRequired() {
+			route.Returns(http.StatusUnauthorized, "Authorization required", ErrorResponse{})
+			route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
+				DataType("string").
+				Required(true).
+				AllowMultiple(false))
+		}
 
 		for _, p := range resource.DeleteParams() {
 			route.Param(p)
 		}
 
 		route.Param(restful.PathParameter(r.TypeName+"-id", "ID of a "+r.TypeName).
-			Required(true).
-			AllowMultiple(false))
-
-		route.Param(restful.QueryParameter("accesstoken", "accesstoken required for auth").
-			DataType("string").
 			Required(true).
 			AllowMultiple(false))
 

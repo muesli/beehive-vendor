@@ -1,8 +1,8 @@
 package twiliogo
 
 import (
-	"os"
-	"testing"
+  "os"
+  "testing"
 )
 
 var API_KEY string = os.Getenv("API_KEY")
@@ -16,18 +16,10 @@ var TEST_FROM_NUMBER string = os.Getenv("TEST_FROM_NUMBER")
 var TO_NUMBER string = os.Getenv("TO_NUMBER")
 
 func CheckTestEnv(t *testing.T) {
-	if API_KEY == "" || API_TOKEN == "" ||
-		TEST_KEY == "" || TEST_TOKEN == "" ||
-		TEST_FROM_NUMBER == "" || FROM_NUMBER == "" ||
-		TO_NUMBER == "" {
-		t.SkipNow()
-	}
-}
-
-func TestBuildUri(t *testing.T) {
-	c := NewClient("abc", "")
-	uri := c.buildUri("qzx")
-	if uri != ROOT+"/"+VERSION+"/Accounts/abc/qzx" {
-		t.Errorf("buildUri failed: got %s", uri)
-	}
+  if API_KEY == "" || API_TOKEN == "" ||
+  TEST_KEY == "" || TEST_TOKEN == "" ||
+  TEST_FROM_NUMBER == "" || FROM_NUMBER == "" ||
+  TO_NUMBER == "" {
+    t.SkipNow()
+  }
 }

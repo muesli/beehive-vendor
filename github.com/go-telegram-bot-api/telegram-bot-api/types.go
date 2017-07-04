@@ -37,16 +37,6 @@ type Update struct {
 	CallbackQuery      *CallbackQuery      `json:"callback_query"`
 }
 
-// UpdatesChannel is the channel for getting updates.
-type UpdatesChannel <-chan Update
-
-// Clear discards all unprocessed incoming updates.
-func (ch UpdatesChannel) Clear() {
-	for len(ch) != 0 {
-		<-ch
-	}
-}
-
 // User is a user on Telegram.
 type User struct {
 	ID        int    `json:"id"`
@@ -194,7 +184,7 @@ func (m *Message) CommandArguments() string {
 		return ""
 	}
 
-	return split[1]
+	return strings.SplitN(m.Text, " ", 2)[1]
 }
 
 // MessageEntity contains information about data in a Message.
@@ -356,11 +346,11 @@ type InlineKeyboardMarkup struct {
 // CallbackGame, if set, MUST be first button in first row.
 type InlineKeyboardButton struct {
 	Text                         string        `json:"text"`
-	URL                          *string       `json:"url,omitempty"`                              // optional
-	CallbackData                 *string       `json:"callback_data,omitempty"`                    // optional
-	SwitchInlineQuery            *string       `json:"switch_inline_query,omitempty"`              // optional
-	SwitchInlineQueryCurrentChat *string       `json:"switch_inline_query_current_chat,omitempty"` // optional
-	CallbackGame                 *CallbackGame `json:"callback_game,omitempty"`                    // optional
+	URL                          *string       `json:"url,omitempty"`                    // optional
+	CallbackData                 *string       `json:"callback_data,omitempty"`          // optional
+	SwitchInlineQuery            *string       `json:"switch_inline_query,omitempty"`    // optional
+	SwitchInlineQueryCurrentChat *string       `json:"switch_inline_query_current_chat"` // optional
+	CallbackGame                 *CallbackGame `json:"callback_game"`                    // optional
 }
 
 // CallbackQuery is data sent when a keyboard button with callback data

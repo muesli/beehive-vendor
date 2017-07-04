@@ -1,4 +1,3 @@
-// Package simplepush provides a library to send (end-to-end encrypted) push messages to Smartphones via https://simplepush.io
 package simplepush
 
 import (
@@ -7,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -16,21 +16,13 @@ import (
 	"net/url"
 )
 
-// Message contains all the information necessary to send a, potentially encrypted, message.
 type Message struct {
-	SimplePushKey string // Your simeplepush.io key
-	Title         string // Title of your message
-	Message       string // Message body
-	Event         string // The event the message should be associated with
-	Encrypt       bool   // If set, the message will be sent end-to-end encrypted with the provided Password/Salt. If false, the message is sent unencrypted.
-	Password      string // Your password
-	Salt          string // If set, this salt is used, otherwise the default one gets used.
+	SimplePushKey, Title, Message, Event string
+	Password, Salt                       string
+	Encrypt                              bool
 }
 
 var defaultSalt = "1789F0B8C4A051E5"
-
-// APIUrl is the public API entry point for https://simplepush.io. It is public to allow overriding in case
-// of simplepush.io compatible services.
 var APIUrl = "https://api.simplepush.io/"
 
 func paddingPKCS5(src []byte, blockSize int) []byte {
@@ -56,8 +48,6 @@ func encrypt(key, iv, buf []byte) (string, error) {
 	return base64.URLEncoding.EncodeToString(buf), nil
 }
 
-// Send takes a message of type Message and sends it via the simplepush.io API.
-// Please refer to the documentation of the Message struct for further information.
 func Send(m Message) error {
 	title := m.Title
 	message := m.Message
@@ -76,6 +66,7 @@ func Send(m Message) error {
 		salt := defaultSalt
 		if m.Salt != "" {
 			salt = m.Salt
+
 		}
 		sha := sha1.Sum([]byte(m.Password + salt))
 		key, _ := hex.DecodeString(fmt.Sprintf("%X", sha)[:32])
@@ -85,12 +76,9 @@ func Send(m Message) error {
 			return err
 		}
 
-		if title != "" {
-			if title, err = encrypt(key, iv, []byte(title)); err != nil {
-				return err
-			}
+		if title, err = encrypt(key, iv, []byte(title)); err != nil {
+			return err
 		}
-
 		if message, err = encrypt(key, iv, []byte(message)); err != nil {
 			return err
 		}
@@ -98,9 +86,7 @@ func Send(m Message) error {
 
 	data := url.Values{}
 	data.Set("key", m.SimplePushKey)
-	if title != "" {
-		data.Add("title", title)
-	}
+	data.Add("title", title)
 	data.Add("msg", message)
 	data.Add("event", m.Event)
 	if m.Encrypt {
@@ -116,7 +102,11 @@ func Send(m Message) error {
 	u.Path = resource
 	urlStr := fmt.Sprintf("%v", u)
 
-	client := &http.Client{}
+	// actually the certificate looks OK, but it was not possible to send messages without this config :-/
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ignore expired SSL certificates
+	}
+	client := &http.Client{Transport: transCfg}
 
 	resp, err := client.PostForm(urlStr, data)
 	if err != nil {

@@ -18,7 +18,11 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -33,7 +37,7 @@ func parseURL(urlStr string) *url.URL {
 var oauthTests = []struct {
 	method    string
 	url       *url.URL
-	appParams url.Values
+	form      url.Values
 	nonce     string
 	timestamp string
 
@@ -49,7 +53,7 @@ var oauthTests = []struct {
 		// Simple example from Twitter OAuth tool
 		method:            "GET",
 		url:               parseURL("https://api.twitter.com/1/"),
-		appParams:         url.Values{"page": {"10"}},
+		form:              url.Values{"page": {"10"}},
 		nonce:             "8067e8abc6bdca2006818132445c8f4c",
 		timestamp:         "1355795903",
 		clientCredentials: Credentials{"kMViZR2MHk2mM7hUNVw9A", "56Fgl58yOfqXOhHXX0ybvOmSnPQFvR2miYmm30A"},
@@ -61,7 +65,7 @@ var oauthTests = []struct {
 		// Test case and port insensitivity.
 		method:            "GeT",
 		url:               parseURL("https://apI.twItter.com:443/1/"),
-		appParams:         url.Values{"page": {"10"}},
+		form:              url.Values{"page": {"10"}},
 		nonce:             "8067e8abc6bdca2006818132445c8f4c",
 		timestamp:         "1355795903",
 		clientCredentials: Credentials{"kMViZR2MHk2mM7hUNVw9A", "56Fgl58yOfqXOhHXX0ybvOmSnPQFvR2miYmm30A"},
@@ -73,7 +77,7 @@ var oauthTests = []struct {
 		// Example generated using the Netflix OAuth tool.
 		method:            "GET",
 		url:               parseURL("http://api-public.netflix.com/catalog/titles"),
-		appParams:         url.Values{"term": {"Dark Knight"}, "count": {"2"}},
+		form:              url.Values{"term": {"Dark Knight"}, "count": {"2"}},
 		nonce:             "1234",
 		timestamp:         "1355850443",
 		clientCredentials: Credentials{"apiKey001", "sharedSecret002"},
@@ -85,7 +89,7 @@ var oauthTests = []struct {
 		// Special characters in form values.
 		method:            "GET",
 		url:               parseURL("http://PHOTOS.example.net:8001/Photos"),
-		appParams:         url.Values{"photo size": {"300%"}, "title": {"Back of $100 Dollars Bill"}},
+		form:              url.Values{"photo size": {"300%"}, "title": {"Back of $100 Dollars Bill"}},
 		nonce:             "kllo~9940~pd9333jh",
 		timestamp:         "1191242096",
 		clientCredentials: Credentials{"dpf43f3++p+#2l4k3l03", "secret01"},
@@ -97,7 +101,7 @@ var oauthTests = []struct {
 		// Special characters in path, multiple values for same key in form.
 		method:            "GET",
 		url:               parseURL("http://EXAMPLE.COM:80/Space%20Craft"),
-		appParams:         url.Values{"name": {"value", "value"}},
+		form:              url.Values{"name": {"value", "value"}},
 		nonce:             "Ix4U1Ei3RFL",
 		timestamp:         "1327384901",
 		clientCredentials: Credentials{"abcd", "efgh"},
@@ -109,7 +113,7 @@ var oauthTests = []struct {
 		// Query string in URL.
 		method:            "GET",
 		url:               parseURL("http://EXAMPLE.COM:80/Space%20Craft?name=value"),
-		appParams:         url.Values{"name": {"value"}},
+		form:              url.Values{"name": {"value"}},
 		nonce:             "Ix4U1Ei3RFL",
 		timestamp:         "1327384901",
 		clientCredentials: Credentials{"abcd", "efgh"},
@@ -121,7 +125,7 @@ var oauthTests = []struct {
 		// "/" in form value.
 		method:            "POST",
 		url:               parseURL("https://stream.twitter.com/1.1/statuses/filter.json"),
-		appParams:         url.Values{"track": {"example.com/abcd"}},
+		form:              url.Values{"track": {"example.com/abcd"}},
 		nonce:             "bf2cb6d611e59f99103238fc9a3bb8d8",
 		timestamp:         "1362434376",
 		clientCredentials: Credentials{"consumer_key", "consumer_secret"},
@@ -133,7 +137,7 @@ var oauthTests = []struct {
 		// "/" in query string
 		method:            "POST",
 		url:               parseURL("https://stream.twitter.com/1.1/statuses/filter.json?track=example.com/query"),
-		appParams:         url.Values{},
+		form:              url.Values{},
 		nonce:             "884275759fbab914654b50ae643c563a",
 		timestamp:         "1362435218",
 		clientCredentials: Credentials{"consumer_key", "consumer_secret"},
@@ -145,7 +149,7 @@ var oauthTests = []struct {
 		// QuickBooks query string
 		method:            "GET",
 		url:               parseURL("https://qb.sbfinance.intuit.com/v3/company/1273852765/query"),
-		appParams:         url.Values{"query": {"select * from account"}},
+		form:              url.Values{"query": {"select * from account"}},
 		nonce:             "12345678",
 		timestamp:         "1409876517",
 		clientCredentials: Credentials{"consumer_key", "consumer_secret"},
@@ -167,7 +171,7 @@ var oauthTests = []struct {
 		signatureMethod:   RSASHA1,
 		method:            "GET",
 		url:               parseURL("http://term.ie/oauth/example/echo_api.php"),
-		appParams:         url.Values{"method": {"foo%20bar"}, "bar": {"baz"}},
+		form:              url.Values{"method": {"foo%20bar"}, "bar": {"baz"}},
 		nonce:             "a7da4d14579d61886be9d596d1a6a720",
 		timestamp:         "1420240290",
 		clientCredentials: Credentials{Token: "key"},
@@ -192,7 +196,7 @@ func TestBaseString(t *testing.T) {
 			"oauth_version":          "1.0",
 		}
 		var buf bytes.Buffer
-		writeBaseString(&buf, ot.method, ot.url, ot.appParams, oauthParams)
+		writeBaseString(&buf, ot.method, ot.url, ot.form, oauthParams)
 		base := buf.String()
 		if base != ot.base {
 			t.Errorf("base string for %s %s\n    = %q,\n want %q", ot.method, ot.url, base, ot.base)
@@ -239,13 +243,13 @@ func TestAuthorizationHeader(t *testing.T) {
 			}
 		}
 		c := Client{Credentials: ot.clientCredentials, SignatureMethod: ot.signatureMethod, PrivateKey: privateKey}
-		header, err := c.authorizationHeader(&ot.credentials, ot.method, ot.url, ot.appParams)
+		header, err := c.authorizationHeader(&request{credentials: &ot.credentials, method: ot.method, u: ot.url, form: ot.form})
 		if err != nil {
-			t.Errorf("authorizationHeader(&cred, %q, %q, %v) returned error %v", ot.method, ot.url.String(), ot.appParams, err)
+			t.Errorf("authorizationHeader(&cred, %q, %q, %v) returned error %v", ot.method, ot.url.String(), ot.form, err)
 			continue
 		}
 		if header != ot.header {
-			t.Errorf("authorizationHeader(&cred, %q, %q, %v) =\n      %s\nwant: %s", ot.method, ot.url.String(), ot.appParams, header, ot.header)
+			t.Errorf("authorizationHeader(&cred, %q, %q, %v) =\n      %s\nwant: %s", ot.method, ot.url.String(), ot.form, header, ot.header)
 		}
 	}
 }
@@ -255,5 +259,80 @@ func TestNonce(t *testing.T) {
 	n := nonce()
 	if len(n) < 8 {
 		t.Fatalf("nonce is %s, exected something longer", n)
+	}
+}
+
+func TestRequestToken(t *testing.T) {
+	var method string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectedMethod := method
+		if method == "" {
+			expectedMethod = http.MethodPost
+		}
+		if r.Method != expectedMethod {
+			t.Errorf("got method %s, want %s", r.Method, expectedMethod)
+		}
+		expectedContenType := ""
+		if r.Method != http.MethodGet {
+			expectedContenType = "application/x-www-form-urlencoded"
+		}
+		if contentType := r.Header.Get("Content-Type"); contentType != expectedContenType {
+			t.Errorf("got content type %q, want %q", contentType, expectedContenType)
+		}
+		if auth := r.Header.Get("Authorization"); !strings.Contains(auth, `oauth_verifier="verifier"`) {
+			t.Errorf("verifier missing from auth header %q", auth)
+		}
+		v := url.Values{}
+		v.Set("oauth_token", "token")
+		v.Set("oauth_token_secret", "secret")
+		io.WriteString(w, v.Encode())
+	}))
+	defer ts.Close()
+
+	for _, method = range []string{"", "GET", "POST"} {
+		c := Client{TokenRequestURI: ts.URL, TokenCredentailsMethod: method}
+		cred, _, err := c.RequestToken(http.DefaultClient, &Credentials{}, "verifier")
+		if err != nil {
+			t.Errorf("returned error %v", err)
+		}
+		if cred.Token != "token" {
+			t.Errorf("token for %s want %s", cred.Token, "token")
+		}
+		if cred.Secret != "secret" {
+			t.Errorf("secret for %s want %s", cred.Secret, "secret")
+		}
+	}
+}
+
+func TestRenewRequestCredentials(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a := r.Header.Get("Authorization")
+		if !strings.Contains(a, `oauth_token="token"`) {
+			t.Errorf("Authorization header %q should contains %q", a, `oauth_token="token"`)
+		}
+		if !strings.Contains(a, `oauth_session_handle="session-handle"`) {
+			t.Errorf("Authorization header %q should contains %q", a, `oauth_session_handle="session-handle"`)
+		}
+		v := url.Values{}
+		v.Set("oauth_token", "response-token")
+		v.Set("oauth_token_secret", "response-token-secret")
+		v.Set("oauth_session_handle", "response-session-handle")
+		io.WriteString(w, v.Encode())
+	}))
+	defer ts.Close()
+
+	c := Client{RenewCredentialRequestURI: ts.URL}
+	cred, rv, err := c.RenewRequestCredentials(http.DefaultClient, &Credentials{Token: "token"}, "session-handle")
+	if err != nil {
+		t.Errorf("returned error %v", err)
+	}
+	if cred.Token != "response-token" {
+		t.Errorf("token for %s want %s", cred.Token, "response-token")
+	}
+	if cred.Secret != "response-token-secret" {
+		t.Errorf("secret for %s want %s", cred.Secret, "response-token-secret")
+	}
+	if rv.Get("oauth_session_handle") != "response-session-handle" {
+		t.Errorf("session handle for %s want %s", rv.Get("oauth_session_handle"), "response-session-handle")
 	}
 }

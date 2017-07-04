@@ -6,7 +6,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/simplepush/simplepush-go"
+	"github.com/rck/simplepush"
 )
 
 var (
@@ -18,20 +18,17 @@ var (
 	flagM = flag.String("m", "", "Set `message`")
 )
 
-var program string
-
-// Version defines the version of the program and gets set via ldflags
-var Version string
+var Program, Version string
 
 func main() {
-	program = path.Base(os.Args[0])
+	Program = path.Base(os.Args[0])
 	if Version == "" {
 		Version = "Unknown Version"
 	}
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "%s (%s)\n", program, Version)
-		fmt.Fprintf(os.Stderr, "Usage: %s -k key -m message [-t title] [-e event] [-p password] [-s salt]\n", program)
+		fmt.Fprintf(os.Stderr, "%s (%s)\n", Program, Version)
+		fmt.Fprintf(os.Stderr, "Usage: %s -k key -m message [-t title] [-e event] [-p password] [-s salt]\n", Program)
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
