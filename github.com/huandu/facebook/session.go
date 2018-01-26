@@ -9,19 +9,70 @@ package facebook
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
+	"regexp"
 )
 
-// Makes a facebook graph api call.
+// Graph API debug mode values.
+const (
+	DEBUG_OFF DebugMode = "" // turn off debug.
+
+	DEBUG_ALL     DebugMode = "all"
+	DEBUG_INFO    DebugMode = "info"
+	DEBUG_WARNING DebugMode = "warning"
+)
+
+var (
+	// Maps aliases to Facebook domains.
+	// Copied from Facebook PHP SDK.
+	domainMap = map[string]string{
+		"api":         "https://api.facebook.com/",
+		"api_video":   "https://api-video.facebook.com/",
+		"api_read":    "https://api-read.facebook.com/",
+		"graph":       "https://graph.facebook.com/",
+		"graph_video": "https://graph-video.facebook.com/",
+		"www":         "https://www.facebook.com/",
+	}
+
+	// checks whether it's a video post.
+	regexpIsVideoPost = regexp.MustCompile(`\/videos$`)
+)
+
+// Session holds a facebook session with an access token.
+// Session should be created by App.Session or App.SessionFromSignedRequest.
+type Session struct {
+	HttpClient HttpClient
+	Version    string // facebook versioning.
+
+	accessToken string // facebook access token. can be empty.
+	app         *App
+	id          string
+
+	enableAppsecretProof bool   // add "appsecret_proof" parameter in every facebook API call.
+	appsecretProof       string // pre-calculated "appsecret_proof" value.
+
+	debug DebugMode // using facebook debugging api in every request.
+
+	context context.Context // Session context.
+}
+
+// HttpClient is an interface to send http request.
+// This interface is designed to be compatible with type `*http.Client`.
+type HttpClient interface {
+	Do(req *http.Request) (resp *http.Response, err error)
+	Get(url string) (resp *http.Response, err error)
+	Post(url string, bodyType string, body io.Reader) (resp *http.Response, err error)
+}
+
+// Api makes a facebook graph api call.
 //
 // If session access token is set, "access_token" in params will be set to the token value.
 //
@@ -51,7 +102,7 @@ func (session *Session) Put(path string, params Params) (Result, error) {
 	return session.Api(path, PUT, params)
 }
 
-// Makes a batch call. Each params represent a single facebook graph api call.
+// BatchApi makes a batch call. Each params represent a single facebook graph api call.
 //
 // BatchApi supports most kinds of batch calls defines in facebook batch api document,
 // except uploading binary data. Use Batch to upload binary data.
@@ -65,7 +116,7 @@ func (session *Session) BatchApi(params ...Params) ([]Result, error) {
 	return session.Batch(nil, params...)
 }
 
-// Makes a batch facebook graph api call.
+// Batch makes a batch facebook graph api call.
 // Batch is designed for more advanced usage including uploading binary files.
 //
 // If session access token is set, "access_token" in batchParams will be set to the token value.
@@ -75,122 +126,7 @@ func (session *Session) Batch(batchParams Params, params ...Params) ([]Result, e
 	return session.graphBatch(batchParams, params...)
 }
 
-// Makes a FQL query.
-// Returns a slice of Result. If there is no query result, the result is nil.
-//
-// Facebook document: https://developers.facebook.com/docs/technical-guides/fql#query
-func (session *Session) FQL(query string) ([]Result, error) {
-	res, err := session.graphFQL(Params{
-		"q": query,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// query result is stored in "data" field.
-	var data []Result
-	err = res.DecodeField("data", &data)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
-
-// Makes a multi FQL query.
-// Returns a parsed Result. The key is the multi query key, and the value is the query result.
-//
-// Here is a multi-query sample.
-//
-//     res, _ := session.MultiFQL(Params{
-//         "query1": "SELECT name FROM user WHERE uid = me()",
-//         "query2": "SELECT uid1, uid2 FROM friend WHERE uid1 = me()",
-//     })
-//
-//     // Get query results from response.
-//     var query1, query2 []Result
-//     res.DecodeField("query1", &query1)
-//     res.DecodeField("query2", &query2)
-//
-// Facebook document: https://developers.facebook.com/docs/technical-guides/fql#multi
-func (session *Session) MultiFQL(queries Params) (Result, error) {
-	res, err := session.graphFQL(Params{
-		"q": queries,
-	})
-
-	if err != nil {
-		return res, err
-	}
-
-	// query result is stored in "data" field.
-	var data []Result
-	err = res.DecodeField("data", &data)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if data == nil {
-		return nil, fmt.Errorf("multi-fql result is not found.")
-	}
-
-	// Multi-fql data structure is:
-	//     {
-	//         "data": [
-	//             {
-	//                 "name": "query1",
-	//                 "fql_result_set": [
-	//                     {...}, {...}, ...
-	//                 ]
-	//             },
-	//             {
-	//                 "name": "query2",
-	//                 "fql_result_set": [
-	//                     {...}, {...}, ...
-	//                 ]
-	//             },
-	//             ...
-	//         ]
-	//     }
-	//
-	// Parse the structure to following go map.
-	//     {
-	//         "query1": [
-	//             // Come from field "fql_result_set".
-	//             {...}, {...}, ...
-	//         ],
-	//         "query2": [
-	//             {...}, {...}, ...
-	//         ],
-	//         ...
-	//     }
-	var name string
-	var apiResponse interface{}
-	var ok bool
-	result := Result{}
-
-	for k, v := range data {
-		err = v.DecodeField("name", &name)
-
-		if err != nil {
-			return nil, fmt.Errorf("missing required field 'name' in multi-query data.%v. %v", k, err)
-		}
-
-		apiResponse, ok = v["fql_result_set"]
-
-		if !ok {
-			return nil, fmt.Errorf("missing required field 'fql_result_set' in multi-query data.%v.", k)
-		}
-
-		result[name] = apiResponse
-	}
-
-	return result, nil
-}
-
-// Makes an arbitrary HTTP request.
+// Request makes an arbitrary HTTP request.
 // It expects server responses a facebook Graph API response.
 //     request, _ := http.NewRequest("https://graph.facebook.com/538744468", "GET", nil)
 //     res, err := session.Request(request)
@@ -207,6 +143,7 @@ func (session *Session) Request(request *http.Request) (res Result, err error) {
 
 	res, err = MakeResult(data)
 	session.addDebugInfo(res, response)
+	session.addUsageInfo(res, response)
 
 	if res != nil {
 		err = res.Err()
@@ -215,7 +152,7 @@ func (session *Session) Request(request *http.Request) (res Result, err error) {
 	return
 }
 
-// Gets current user id from access token.
+// User gets current user id from access token.
 //
 // Returns error if access token is not set or invalid.
 //
@@ -227,7 +164,7 @@ func (session *Session) User() (id string, err error) {
 	}
 
 	if session.accessToken == "" && session.HttpClient == nil {
-		err = fmt.Errorf("access token is not set.")
+		err = fmt.Errorf("access token is not set")
 		return
 	}
 
@@ -247,11 +184,11 @@ func (session *Session) User() (id string, err error) {
 	return
 }
 
-// Validates Session access token.
+// Validate validates Session access token.
 // Returns nil if access token is valid.
 func (session *Session) Validate() (err error) {
 	if session.accessToken == "" && session.HttpClient == nil {
-		err = fmt.Errorf("access token is not set.")
+		err = fmt.Errorf("access token is not set")
 		return
 	}
 
@@ -263,7 +200,7 @@ func (session *Session) Validate() (err error) {
 	}
 
 	if f := result.Get("id"); f == nil {
-		err = fmt.Errorf("invalid access token.")
+		err = fmt.Errorf("invalid access token")
 		return
 	}
 
@@ -275,19 +212,19 @@ func (session *Session) Validate() (err error) {
 // See https://developers.facebook.com/docs/facebook-login/manually-build-a-login-flow/v2.2#checktoken
 func (session *Session) Inspect() (result Result, err error) {
 	if session.accessToken == "" && session.HttpClient == nil {
-		err = fmt.Errorf("access token is not set.")
+		err = fmt.Errorf("access token is not set")
 		return
 	}
 
 	if session.app == nil {
-		err = fmt.Errorf("cannot inspect access token without binding an app.")
+		err = fmt.Errorf("cannot inspect access token without binding an app")
 		return
 	}
 
 	appAccessToken := session.app.AppAccessToken()
 
 	if appAccessToken == "" {
-		err = fmt.Errorf("app access token is not set.")
+		err = fmt.Errorf("app access token is not set")
 		return
 	}
 
@@ -303,7 +240,7 @@ func (session *Session) Inspect() (result Result, err error) {
 	// facebook stores everything, including error, inside result["data"].
 	// make sure that result["data"] exists and doesn't contain error.
 	if _, ok := result["data"]; !ok {
-		err = fmt.Errorf("facebook inspect api returns unexpected result.")
+		err = fmt.Errorf("facebook inspect api returns unexpected result")
 		return
 	}
 
@@ -314,7 +251,7 @@ func (session *Session) Inspect() (result Result, err error) {
 	return
 }
 
-// Gets current access token.
+// AccessToken gets current access token.
 func (session *Session) AccessToken() string {
 	return session.accessToken
 }
@@ -328,7 +265,7 @@ func (session *Session) SetAccessToken(token string) {
 	}
 }
 
-// Check appsecret proof is enabled or not.
+// AppsecretProof checks appsecret proof is enabled or not.
 func (session *Session) AppsecretProof() string {
 	if !session.enableAppsecretProof {
 		return ""
@@ -347,11 +284,11 @@ func (session *Session) AppsecretProof() string {
 	return session.appsecretProof
 }
 
-// Enable or disable appsecret proof status.
-// Returns error if there is no App associasted with this Session.
+// EnableAppsecretProof enables or disable appsecret proof status.
+// Returns error if there is no App associated with this Session.
 func (session *Session) EnableAppsecretProof(enabled bool) error {
 	if session.app == nil {
-		return fmt.Errorf("cannot change appsecret proof status without an associated App.")
+		return fmt.Errorf("cannot change appsecret proof status without an associated App")
 	}
 
 	if session.enableAppsecretProof != enabled {
@@ -365,7 +302,7 @@ func (session *Session) EnableAppsecretProof(enabled bool) error {
 	return nil
 }
 
-// Gets associated App.
+// App gets associated App.
 func (session *Session) App() *App {
 	return session.app
 }
@@ -389,7 +326,7 @@ func (session *Session) SetDebug(debug DebugMode) DebugMode {
 }
 
 func (session *Session) graph(path string, method Method, params Params) (res Result, err error) {
-	var graphUrl string
+	var graphURL string
 
 	if params == nil {
 		params = Params{}
@@ -403,14 +340,18 @@ func (session *Session) graph(path string, method Method, params Params) (res Re
 
 	// get graph api url.
 	if session.isVideoPost(path, method) {
-		graphUrl = session.getUrl("graph_video", path, nil)
+		graphURL = session.getURL("graph_video", path, nil)
 	} else {
-		graphUrl = session.getUrl("graph", path, nil)
+		graphURL = session.getURL("graph", path, nil)
 	}
 
 	var response *http.Response
-	response, err = session.sendPostRequest(graphUrl, params, &res)
-	session.addDebugInfo(res, response)
+	response, err = session.sendPostRequest(graphURL, params, &res)
+
+	if response != nil {
+		session.addDebugInfo(res, response)
+		session.addUsageInfo(res, response)
+	}
 
 	if res != nil {
 		err = res.Err()
@@ -427,38 +368,9 @@ func (session *Session) graphBatch(batchParams Params, params ...Params) ([]Resu
 	batchParams["batch"] = params
 
 	var res []Result
-	graphUrl := session.getUrl("graph", "", nil)
+	graphUrl := session.getURL("graph", "", nil)
 	_, err := session.sendPostRequest(graphUrl, batchParams, &res)
 	return res, err
-}
-
-func (session *Session) graphFQL(params Params) (res Result, err error) {
-	if params == nil {
-		params = Params{}
-	}
-
-	session.prepareParams(params)
-
-	// encode url.
-	buf := &bytes.Buffer{}
-	buf.WriteString(domainMap["graph"])
-	buf.WriteString("fql?")
-	_, err = params.Encode(buf)
-
-	if err != nil {
-		return nil, fmt.Errorf("cannot encode params. %v", err)
-	}
-
-	// it seems facebook disallow POST to /fql. always use GET for FQL.
-	var response *http.Response
-	response, err = session.sendGetRequest(buf.String(), &res)
-	session.addDebugInfo(res, response)
-
-	if res != nil {
-		err = res.Err()
-	}
-
-	return
 }
 
 func (session *Session) prepareParams(params Params) {
@@ -524,7 +436,7 @@ func (session *Session) sendPostRequest(uri string, params Params, res interface
 }
 
 func (session *Session) sendOauthRequest(uri string, params Params) (Result, error) {
-	urlStr := session.getUrl("graph", uri, nil)
+	urlStr := session.getURL("graph", uri, nil)
 	buf := &bytes.Buffer{}
 	mime, err := params.Encode(buf)
 
@@ -576,6 +488,10 @@ func (session *Session) sendOauthRequest(uri string, params Params) (Result, err
 }
 
 func (session *Session) sendRequest(request *http.Request) (response *http.Response, data []byte, err error) {
+	if session.context != nil {
+		request = request.WithContext(session.context)
+	}
+
 	if session.HttpClient == nil {
 		response, err = http.DefaultClient.Do(request)
 	} else {
@@ -603,7 +519,7 @@ func (session *Session) isVideoPost(path string, method Method) bool {
 	return method == POST && regexpIsVideoPost.MatchString(path)
 }
 
-func (session *Session) getUrl(name, path string, params Params) string {
+func (session *Session) getURL(name, path string, params Params) string {
 	offset := 0
 
 	if path != "" && path[0] == '/' {
@@ -642,29 +558,50 @@ func (session *Session) addDebugInfo(res Result, response *http.Response) Result
 	debugInfo := make(map[string]interface{})
 
 	// save debug information in result directly.
-	res.DecodeField("__debug__", &debugInfo)
+	res.DecodeField(debugInfoKey, &debugInfo)
 	debugInfo[debugProtoKey] = response.Proto
 	debugInfo[debugHeaderKey] = response.Header
 
-	res["__debug__"] = debugInfo
+	res[debugInfoKey] = debugInfo
 	return res
 }
 
-func decodeBase64URLEncodingString(data string) ([]byte, error) {
-	buf := bytes.NewBufferString(data)
-
-	// go's URLEncoding implementation requires base64 padding.
-	if m := len(data) % 4; m != 0 {
-		buf.WriteString(strings.Repeat("=", 4-m))
+func (session *Session) addUsageInfo(res Result, response *http.Response) Result {
+	if res == nil || response == nil {
+		return res
 	}
 
-	reader := base64.NewDecoder(base64.URLEncoding, buf)
-	output := &bytes.Buffer{}
-	_, err := io.Copy(output, reader)
+	var usageInfo UsageInfo
 
-	if err != nil {
-		return nil, err
+	if usage := response.Header.Get("X-App-Usage"); usage != "" {
+		json.Unmarshal([]byte(usage), &usageInfo.App)
 	}
 
-	return output.Bytes(), nil
+	if usage := response.Header.Get("X-Page-Usage"); usage != "" {
+		json.Unmarshal([]byte(usage), &usageInfo.Page)
+	}
+
+	res[usageInfoKey] = &usageInfo
+	return res
+}
+
+// Context returns the session's context.
+// To change the context, use `Session#WithContext`.
+//
+// The returned context is always non-nil; it defaults to the background context.
+// For outgoing Facebook API requests, the context controls timeout/deadline and cancelation.
+func (session *Session) Context() context.Context {
+	if session.context != nil {
+		return session.context
+	}
+
+	return context.Background()
+}
+
+// WithContext returns a shallow copy of session with its context changed to ctx.
+// The provided ctx must be non-nil.
+func (session *Session) WithContext(ctx context.Context) *Session {
+	s := *session
+	s.context = ctx
+	return &s
 }

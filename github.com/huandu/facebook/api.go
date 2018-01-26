@@ -20,14 +20,22 @@ import (
 	"net/http"
 )
 
+// Facebook graph api methods.
+const (
+	GET    Method = "GET"
+	POST   Method = "POST"
+	DELETE Method = "DELETE"
+	PUT    Method = "PUT"
+)
+
 var (
-	// Default facebook api version.
+	// Version is the default facebook api version.
 	// It can be any valid version string (e.g. "v2.3") or empty.
 	//
 	// See https://developers.facebook.com/docs/apps/versions for details.
 	Version string
 
-	// Set app level debug mode.
+	// Debug is the app level debug mode.
 	// After setting DebugMode, all newly created session will use the mode
 	// to communicate with graph API.
 	//
@@ -35,12 +43,25 @@ var (
 	Debug DebugMode
 )
 
-// Makes a facebook graph api call with default session.
+var (
+	// default facebook session.
+	defaultSession = &Session{}
+)
+
+// DebugMode is the debug mode of Graph API.
+// See https://developers.facebook.com/docs/graph-api/using-graph-api/v2.3#graphapidebugmode
+type DebugMode string
+
+// Method is HTTP method for an API call.
+// Can be GET, POST or DELETE.
+type Method string
+
+// Api makes a facebook graph api call with default session.
 //
 // Method can be GET, POST, DELETE or PUT.
 //
 // Params represents query strings in this call.
-// Keys and values in params will be encoded for URL automatically. So there is
+// Keys and values in params will be encoded into the URL automatically, so there is
 // no need to encode keys or values in params manually. Params can be nil.
 //
 // If you want to get
@@ -79,7 +100,7 @@ func Put(path string, params Params) (Result, error) {
 	return Api(path, PUT, params)
 }
 
-// Makes a batch facebook graph api call with default session.
+// BatchApi makes a batch facebook graph api call with default session.
 //
 // BatchApi supports most kinds of batch calls defines in facebook batch api document,
 // except uploading binary data. Use Batch to do so.
@@ -104,7 +125,7 @@ func BatchApi(accessToken string, params ...Params) ([]Result, error) {
 	return Batch(Params{"access_token": accessToken}, params...)
 }
 
-// Makes a batch facebook graph api call with default session.
+// Batch makes a batch facebook graph api call with default session.
 // Batch is designed for more advanced usage including uploading binary files.
 //
 // An uploading files sample
@@ -136,31 +157,7 @@ func Batch(batchParams Params, params ...Params) ([]Result, error) {
 	return defaultSession.Batch(batchParams, params...)
 }
 
-// [Deprecated] Makes a FQL query with default session.
-// Returns a slice of Result. If there is no query result, the result is nil.
-//
-// FQL can only make query without "access_token". For query requiring "access_token", create
-// Session and call its FQL method.
-//
-// Facebook document: https://developers.facebook.com/docs/technical-guides/fql#query
-func FQL(query string) ([]Result, error) {
-	return defaultSession.FQL(query)
-}
-
-// [Deprecated] Makes a multi FQL query with default session.
-// Returns a parsed Result. The key is the multi query key, and the value is the query result.
-//
-// MultiFQL can only make query without "access_token". For query requiring "access_token", create
-// Session and call its MultiFQL method.
-//
-// See Session.MultiFQL document for samples.
-//
-// Facebook document: https://developers.facebook.com/docs/technical-guides/fql#multi
-func MultiFQL(queries Params) (Result, error) {
-	return defaultSession.MultiFQL(queries)
-}
-
-// Makes an arbitrary HTTP request with default session.
+// Request makes an arbitrary HTTP request with default session.
 // It expects server responses a facebook Graph API response.
 //     request, _ := http.NewRequest("https://graph.facebook.com/538744468", "GET", nil)
 //     res, err := Request(request)

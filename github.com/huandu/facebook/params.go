@@ -22,6 +22,23 @@ import (
 	"strings"
 )
 
+const (
+	_MIME_FORM_URLENCODED = "application/x-www-form-urlencoded"
+	_MIME_FORM_DATA       = "multipart/form-data"
+)
+
+var (
+	typeOfPointerToBinaryData = reflect.TypeOf(&BinaryData{})
+	typeOfPointerToBinaryFile = reflect.TypeOf(&BinaryFile{})
+)
+
+// API params.
+//
+// For general uses, just use Params as an ordinary map.
+//
+// For advanced uses, use MakeParams to create Params from any struct.
+type Params map[string]interface{}
+
 // Makes a new Params instance by given data.
 // Data must be a struct or a map with string keys.
 // MakeParams will change all struct field name to lower case name with underscore.
@@ -161,7 +178,7 @@ func (params Params) encodeMultipartForm(writer io.Writer) (mime string, err err
 
 	for k, v := range params {
 		switch value := v.(type) {
-		case *binaryData:
+		case *BinaryData:
 			var dst io.Writer
 			filePart := createFormFile(k, value.Filename, value.ContentType)
 			dst, err = w.CreatePart(filePart)
@@ -176,7 +193,7 @@ func (params Params) encodeMultipartForm(writer io.Writer) (mime string, err err
 				return
 			}
 
-		case *binaryFile:
+		case *BinaryFile:
 			var dst io.Writer
 			var file *os.File
 			var path string

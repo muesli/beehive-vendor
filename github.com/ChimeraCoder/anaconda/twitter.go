@@ -182,6 +182,14 @@ func GetCredentials(tempCred *oauth.Credentials, verifier string) (*oauth.Creden
 	return oauthClient.RequestToken(http.DefaultClient, tempCred, verifier)
 }
 
+func defaultValues(v url.Values) url.Values {
+	if v == nil {
+		v = url.Values{}
+	}
+	v.Set("tweet_mode", "extended")
+	return v
+}
+
 func cleanValues(v url.Values) url.Values {
 	if v == nil {
 		return url.Values{}
@@ -191,6 +199,7 @@ func cleanValues(v url.Values) url.Values {
 
 // apiGet issues a GET request to the Twitter API and decodes the response JSON to data.
 func (c TwitterApi) apiGet(urlStr string, form url.Values, data interface{}) error {
+	form = defaultValues(form)
 	resp, err := oauthClient.Get(c.HttpClient, c.Credentials, urlStr, form)
 	if err != nil {
 		return err
@@ -231,6 +240,10 @@ func (c TwitterApi) apiPut(urlStr string, form url.Values, data interface{}) err
 
 // decodeResponse decodes the JSON response from the Twitter API.
 func decodeResponse(resp *http.Response, data interface{}) error {
+	// Prevent memory leak in the case where the Response.Body is not used.
+	// As per the net/http package, Response.Body still needs to be closed.
+	defer resp.Body.Close()
+
 	// according to dev.twitter.com, chunked upload append returns HTTP 2XX
 	// so we need a special case when decoding the response
 	if strings.HasSuffix(resp.Request.URL.String(), "upload.json") {

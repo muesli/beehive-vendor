@@ -1,6 +1,6 @@
 /*
  * Minio Go Library for Amazon S3 Compatible Cloud Storage
- * (C) 2015, 2016, 2017 Minio, Inc.
+ * Copyright 2015-2017 Minio, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 package minio
 
 import (
-	"encoding/hex"
 	"net/http"
 	"net/url"
 	"path"
@@ -89,20 +88,6 @@ func (c Client) getBucketLocation(bucketName string) (string, error) {
 	// Region set then no need to fetch bucket location.
 	if c.region != "" {
 		return c.region, nil
-	}
-
-	if s3utils.IsAmazonChinaEndpoint(c.endpointURL) {
-		// For china specifically we need to set everything to
-		// cn-north-1 for now, there is no easier way until AWS S3
-		// provides a cleaner compatible API across "us-east-1" and
-		// China region.
-		return "cn-north-1", nil
-	} else if s3utils.IsAmazonGovCloudEndpoint(c.endpointURL) {
-		// For us-gov specifically we need to set everything to
-		// us-gov-west-1 for now, there is no easier way until AWS S3
-		// provides a cleaner compatible API across "us-east-1" and
-		// Gov cloud region.
-		return "us-gov-west-1", nil
 	}
 
 	if location, ok := c.bucketLocCache.Get(bucketName); ok {
@@ -223,11 +208,9 @@ func (c Client) getBucketLocationRequest(bucketName string) (*http.Request, erro
 	}
 
 	// Set sha256 sum for signature calculation only with signature version '4'.
-	var contentSha256 string
+	contentSha256 := emptySHA256Hex
 	if c.secure {
 		contentSha256 = unsignedPayload
-	} else {
-		contentSha256 = hex.EncodeToString(sum256([]byte{}))
 	}
 
 	req.Header.Set("X-Amz-Content-Sha256", contentSha256)
